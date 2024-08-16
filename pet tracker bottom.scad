@@ -10,31 +10,85 @@
 
 $fs = 0.03;   // set to 0.01 for higher definition curves
 
-// variabldes
+// BOM parameters (fixed)
+
+// Heltec Wireless Tracker
+$pcb_width = 28.1;
+$pcb_length = 63.8;
+$pcb_thickness = 1.7;
+// (compound measurements)
+$screen_thickness = 5.5-$pcb_thickness;
+$gps_thickness = 5.70-$pcb_thickness;
+$bt_ant_thickness = 6.4-$pcb_thickness;
+$battery_plug_thickness = 8.6-$pcb_thickness-$screen_thickness; // lowest point on the board
+// Included IPEX-SMA connector
+$antenna_radius = 3.3;
+// USB-C connector
+// (connector is centered)
+$usb_height = 3.5;
+$usb_width = 9;
+// MakerFocus 2000mAh Lithium battery
+$battery_length = 53;
+$battery_width = 34.2;
+$battery_height = 10.3;
+
+// Design parameters (adjustable)
 
 $skin_thickness = 1.4;
-$chip_height = 15.0;
-$chip_length = 66.2;
-$chip_width = 28.4;
+$vertical_wiggle_room = 1; // so we don't pack things too tightly
+$inside_radius = 2;
+$outside_radius = 3;
+$lip_height = 2.0;
+$rail_thickness = 1.6; // how much the rail sticks out under the PCB
+
+// Calculated parameters
+$chip_length = $pcb_length + /*loss due to rounding*/ $inside_radius; // inside length
+$chip_width = $pcb_width; // inside width
+$usb_offset = $pcb_thickness; // bottom of usb above the rail
+$lip_inset = $skin_thickness / 2;
+
+
+// this could technically be a little tighter because the battery sits below the chips, not the battery plug, but a little extra space is probably a good idea
+$minimal_chip_height = $battery_height+$battery_plug_thickness+$vertical_wiggle_room; // bottom of the pcb to the bottom interior
+$case_y_max = $skin_thickness+$chip_width+$skin_thickness;
+
+$battery_box_external_y_origin = $case_y_max - $skin_thickness - $battery_width - $skin_thickness;
+$battery_box_y_extrusion = 0 - $battery_box_external_y_origin;
+$antenna_center_x_offset = $skin_thickness + 2*$antenna_radius;
+$battery_box_x_origin = $antenna_center_x_offset + 2*$antenna_radius;
+$main_box_length = $chip_length + 2*$skin_thickness;
+$case_x_max = $battery_box_x_origin + $skin_thickness + $battery_length + $skin_thickness;
+$battery_box_x_extrusion = $case_x_max - $main_box_length;
+
+$battery_box_outer_height =
+    $skin_thickness + $battery_height + $skin_thickness // main dimensions
+    + ($battery_box_y_extrusion - $skin_thickness); // avoid supports with a 45deg angled ceiling
+
+$chip_height = (
+    $minimal_chip_height > $battery_box_outer_height
+        ? $minimal_chip_height
+        : $battery_box_outer_height+2*$rail_thickness
+);
+
+
+$antenna_center_height = $chip_height // anchored against the rail location
+    - 2*$rail_thickness // fully below the rail
+    - $antenna_radius // spacing for the antenna hex
+    - $antenna_radius; // center, not perimeter
+
+
+
+// Old parameters
+$rail_height = $chip_height - 1.2; // ??
 $antenna_offset = $chip_width / 2;
-$antenna_radius = 3.3;
-$antenna_rail = 5.0;
+$antenna_rail = 0.0;
 $clasp_hole = 3.2;
 $extra = 2;
-$inside_radius = 2;
-$lip_height = 2.0;
-$lip_inset = $skin_thickness / 2;
-$outside_radius = 3;
-$rail_height = $chip_height - 1.2;
-$rail_thickness = 1.6;
 $strap_angle = 8;
 $strap_inset = 5.2;
 $strap_offset = 3.3;
 $strap_radius = 2.2;
 $trough_radius = 2.2;
-$usb_height = 3.5;
-$usb_offset = 1.6;
-$usb_width = 9;
 
 // rounded-cube function
 
@@ -78,109 +132,142 @@ module roundedcube(
 
 // bottom of case
 
-union() {
-    difference() {
-        difference() {
-            union() {
-                // box
-                roundedcube(
-                    size = [
-                        $chip_length + 2 * $skin_thickness,
-                        $chip_width + 2 * $skin_thickness,
-                        $skin_thickness + $chip_height],
-                    radius = $outside_radius,
-                    zmin = true
-                );
-                // lip
-                translate([
-                  $lip_inset,
-                  $lip_inset,
-                  $skin_thickness + $chip_height  / 2
-                ])
-                roundedcube(
-                    size = [
-                        $chip_length + 2 * ($skin_thickness - $lip_inset),
-                        $chip_width + 2 * ($skin_thickness - $lip_inset),
-                        $chip_height / 2 + $lip_height],
-                    radius = $outside_radius,
-                    zmin = true
-                );
-                // usb extra
-                translate([
-                    0,
-                    $skin_thickness + ($chip_width - $usb_width) / 2,
-                    $skin_thickness + $chip_height
-                ])
-                cube([
-                    $skin_thickness,
-                    $usb_width,
-                    $lip_height
-                ]);
-            };
-            union() {
-                // antenna
-                translate([
-                    $chip_length - 2 * $extra,
-                    $skin_thickness + $antenna_offset,
-                    $skin_thickness + $rail_height / 2
-                ])
-                rotate([0, 90, 0])
-                cylinder(h = $skin_thickness + 6 * $extra, r = $antenna_radius);
-                // clasp holes
-                for (offset_x = [$chip_length / 3, 2 * $chip_length / 3]) {
-                    translate([
-                        $skin_thickness + offset_x - $clasp_hole / 2,
-                        -$extra,
-                        $skin_thickness + $chip_height
-                    ])
-                    cube([
-                        $clasp_hole,
-                        2 * $skin_thickness + $chip_width + 2 * $extra,
-                        $lip_height / 2
-                    ]);
-                }
-            }
-        }
-        union() {
-            // center void
+module main_exterior() {
+    union() {
+        // box
+        roundedcube(
+            size = [
+                $chip_length + 2 * $skin_thickness,
+                $chip_width + 2 * $skin_thickness,
+                $skin_thickness + $chip_height],
+            radius = $outside_radius,
+            zmin = true
+        );
+        // lip
+        translate([
+          $lip_inset,
+          $lip_inset,
+          $skin_thickness + $chip_height  / 2
+        ])
+        roundedcube(
+            size = [
+                $chip_length + 2 * ($skin_thickness - $lip_inset),
+                $chip_width + 2 * ($skin_thickness - $lip_inset),
+                $chip_height / 2 + $lip_height],
+            radius = $outside_radius,
+            zmin = true
+        );
+        // usb extra
+        translate([
+            0,
+            $skin_thickness + ($chip_width - $usb_width) / 2,
+            $skin_thickness + $chip_height
+        ])
+        cube([
+            $skin_thickness,
+            $usb_width,
+            $lip_height
+        ]);
+        // battery
+        translate([
+            ($skin_thickness + 2*$antenna_radius) + 2*$antenna_radius,
+            2*$skin_thickness+$chip_width - 2*$skin_thickness - $battery_width,
+            0
+        ])
+        roundedcube(
+            size=[
+                $battery_length+2*$skin_thickness,
+                $battery_width+2*$skin_thickness,
+                $battery_box_outer_height
+            ],
+            radius=$outside_radius
+        );
+    };
+}
+
+module external_penetrations() {
+    union() {
+        // antenna
+        translate([
+            $skin_thickness + $antenna_radius + $antenna_radius,
+            2*$extra,
+            //$skin_thickness + ($rail_height-$rail_thickness) / 2
+            $antenna_center_height
+        ])
+        rotate([90, 0, 0])
+        cylinder(h = $skin_thickness + 6 * $extra, r = $antenna_radius);
+        // clasp holes
+        for (offset_x = [$chip_length / 3, 2 * $chip_length / 3]) {
             translate([
-                $skin_thickness,
-                $skin_thickness,
-                $skin_thickness
-            ])
-            roundedcube(
-                size = [
-                    $chip_length,
-                    $chip_width,
-                    $skin_thickness + $chip_height + $lip_height + $extra],
-                radius = $inside_radius
-            );
-            // usb port
-            translate([
+                $skin_thickness + offset_x - $clasp_hole / 2,
                 -$extra,
-                $skin_thickness + ($chip_width - $usb_width) / 2,
-                $skin_thickness + $chip_height + $lip_height - $usb_offset
+                $skin_thickness + $chip_height
             ])
-            roundedcube(
-                size = [
-                    2 * $extra + $skin_thickness,
-                    $usb_width,
-                    $usb_height],
-                radius = 0.8,
-                x = true
-            );
-            // strap holes
-            for (offset_x = [0, 2 * $skin_thickness + $chip_length]) {
-                for (offset_y = [0, 2 * $skin_thickness + $chip_width]) {
-                    translate([offset_x, offset_y, $skin_thickness + $strap_offset])
-                    rotate_extrude(angle = 360)
-                    translate([$skin_thickness + $strap_inset, 0, 0])
-                    circle(r = $strap_radius);
-                }
+            cube([
+                $clasp_hole,
+                2 * $skin_thickness + $chip_width + 2 * $extra,
+                $lip_height / 2
+            ]);
+        }
+        // usb port
+        translate([
+            -$extra,
+            $skin_thickness + ($chip_width - $usb_width) / 2,
+            $skin_thickness + $chip_height + $lip_height - $usb_offset
+        ])
+        roundedcube(
+            size = [
+                2 * $extra + $skin_thickness,
+                $usb_width,
+                $usb_height],
+            radius = 0.8,
+            x = true
+        );
+        // strap holes
+        *for (offset_x = [0, 2 * $skin_thickness + $chip_length]) {
+            for (offset_y = [0, 2 * $skin_thickness + $chip_width]) {
+                translate([offset_x, offset_y, $skin_thickness + $strap_offset])
+                rotate_extrude(angle = 360)
+                translate([$skin_thickness + $strap_inset, 0, 0])
+                circle(r = $strap_radius);
             }
         }
     }
+}
 
+module internal_voids() {
+    union() {
+        // center void
+        translate([
+            $skin_thickness,
+            $skin_thickness,
+            $skin_thickness
+        ])
+        roundedcube(
+            size = [
+                $chip_length,
+                $chip_width,
+                $skin_thickness + $chip_height + $lip_height + $extra],
+            radius = $inside_radius
+        );
+        // battery
+        translate([
+            ($skin_thickness + 2*$antenna_radius) + 2*$antenna_radius + $skin_thickness,
+            2*$skin_thickness+$chip_width - 2*$skin_thickness - $battery_width + $skin_thickness,
+            $skin_thickness
+        ])
+        roundedcube(
+            size=[
+                $battery_length,
+                $battery_width,
+                $battery_box_outer_height - 2*$skin_thickness
+            ],
+            radius=$inside_radius
+        );
+    }
+}
+
+module internal_additions() {
     union() {
         // chip rails
         translate([
@@ -207,8 +294,37 @@ union() {
             [2 * $rail_thickness, 0],
             [0, -$rail_thickness]
         ]);
-        // antenna rails
+        
+        // battery overhang support avoidance
+        // length
         translate([
+            ($skin_thickness + 2*$antenna_radius) + 2*$antenna_radius + $skin_thickness,
+            2*$skin_thickness+$chip_width - 2*$skin_thickness - $battery_width + $skin_thickness,
+            $battery_box_outer_height - $skin_thickness
+        ])
+        rotate([0, 90, 0])
+        linear_extrude(height = $battery_length)
+        polygon(points = [
+            [0, 0],
+            [$battery_box_y_extrusion, 0],
+            [0, $battery_box_y_extrusion]
+        ]);
+        // width
+        translate([
+            ($skin_thickness + 2*$antenna_radius) + 2*$antenna_radius + $skin_thickness + $battery_length,
+            0-$battery_box_y_extrusion+$skin_thickness,
+            $battery_box_outer_height - $skin_thickness
+        ])
+        rotate([0, 90, 90])
+        linear_extrude(height = $battery_width)
+        polygon(points = [
+            [0, 0],
+            [$battery_box_x_extrusion, 0],
+            [0, $battery_box_x_extrusion]
+        ]);
+        
+        // antenna rails
+        *translate([
             $skin_thickness + $chip_length - $antenna_rail,
             $antenna_offset - $antenna_radius,
             $skin_thickness
@@ -218,7 +334,7 @@ union() {
             $skin_thickness,
             $rail_height / 2 + $antenna_radius
         ]);
-        translate([
+        *translate([
             $skin_thickness + $chip_length - $antenna_rail,
             $skin_thickness + $antenna_offset + $antenna_radius,
             $skin_thickness
@@ -228,7 +344,7 @@ union() {
             $skin_thickness,
             $rail_height / 2 + $antenna_radius
         ]);
-        translate([
+        *translate([
             $skin_thickness + $chip_length - $antenna_rail,
             $antenna_offset - $antenna_radius,
             $skin_thickness
@@ -239,7 +355,7 @@ union() {
             $rail_height / 2 - $antenna_radius
         ]);
         // strap tubes
-        for (offset_x = [0, 2 * $skin_thickness + $chip_length]) {
+        *for (offset_x = [0, 2 * $skin_thickness + $chip_length]) {
             for (offset_y = [0, 2 * $skin_thickness + $chip_width]) {
                 translate([offset_x, offset_y, $skin_thickness + $strap_offset])
                 rotate([
@@ -258,4 +374,14 @@ union() {
             }
         }
     }
+}
+
+union() {
+    difference() {
+        main_exterior();
+        external_penetrations();
+        internal_voids();
+    }
+    
+    internal_additions();
 }
